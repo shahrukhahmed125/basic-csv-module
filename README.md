@@ -1,61 +1,140 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Laravel CSV Import
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+## 1. Create the migration / model for posts table
+#### Bash
+    php artisan make:model Post -m
 
-## About Laravel
+#### posts table
+    public function up(): void
+    {
+        Schema::create('posts', function (Blueprint $table) {
+            $table->id();
+            $table->string('title');
+            $table->text('description');
+            $table->timestamps();
+        });
+    }
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+#### Bash
+    php artisan migrate
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+#### Post Model
+    protected $fillable = ['title', 'description'];
+    
+## 2. Create a Controller for CSV Import
+#### Bash
+    php artisan make:controller PostCsvController
+    
+#### In app/Http/Controllers/PostCsvController.php:
+    <?php
+    
+    namespace App\Http\Controllers;
+    
+    use App\Models\Post;
+    use Illuminate\Http\Request;
+    
+    class PostCsvController extends Controller
+    {
+    public function index()
+    {
+        $posts = Post::all();
+        return view('post_csv.index', compact('posts'));
+    }
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+    public function import(Request $request)
+    {   
+        $request->validate([
+            'csv_file' => 'required|file|mimes:csv,txt',
+        ]);
 
-## Learning Laravel
+        $file = $request->file('csv_file');
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+        if(($handle = fopen($file->getPathname(), 'r')) !== false)
+        {
+            $firstLine = fgets($handle);
+            rewind($handle);
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+            $delimiter = str_contains($firstLine, ';') ? ';' : ',';
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+            $header = fgetcsv($handle, 1000, $delimiter);
 
-## Laravel Sponsors
+            while($row = fgetcsv($handle, 1000, $delimiter))
+            {
+                if(count($row) < 2) continue;
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+                Post::create([
+                    'title' => $row[0] ?? '',
+                    'description' => $row[1] ?? '',
+                ]);
+            }
+            fclose($handle);
+        }
 
-### Premium Partners
+        return redirect()->back()->with('success', 'CSV Imported Successfully!');
+    }
+    }
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+## 3. Create the Blade view
 
-## Contributing
+    <!DOCTYPE html lang="en">
+    <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Import Posts CSV</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-LN+7fdVzj6u52u30Kp6M/trliBMCMKTyK833zpbD+pXdCLuTusPj697FH4R/5mcr" crossorigin="anonymous">
+        </head>
+        <body class="container mt-5">
+            @if(session('success'))
+                <div class="alert alert-success" role="alert">
+                    {{ session('success') }}
+                </div>
+            @endif
+    
+    
+            <h4 class="mb-3">Import Posts from CSV using Basic PHP Code</h4>
+    
+            <form action="{{ route('posts.import') }}" method="POST" enctype="multipart/form-data" class="card p-4 shadow-sm">
+                @csrf
+                <div class="mb-3">
+                    <label for="csv_file" class="form-label">Upload CSV File</label>
+                    <input type="file" name="csv_file" id="csv_file" class="form-control" accept=".csv">
+                </div>
+                <button type="submit" class="btn btn-primary">Import</button>
+            </form>
+     
+            <div class="card p-4 shadow-sm">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Title</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($posts as $post)
+                            <tr>
+                                <td>{{ $post->id }}</td>
+                                <td>{{ ucwords($post->title) }}</td>
+                                <td>{{ $post->description }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </body>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js" integrity="sha384-ndDqU0Gzau9qJ1lfW4pNLlhNTkCfHzAVBReH9diLvGRem5+R9g2FzA8ZGN954O5Q" crossorigin="anonymous"></script>
+    </html>
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## 4. Add Routes
 
-## Code of Conduct
+    use App\Http\Controllers\PostCsvController;
+    
+    Route::get('posts/import', [PostCsvController::class, 'showForm'])->name('posts.import.form');
+    Route::post('posts/import', [PostCsvController::class, 'import'])->name('posts.import');
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+    </body>
+    </html>
+    
 
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
